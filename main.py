@@ -1,6 +1,10 @@
 import json
 import requests
+from openpyxl.utils.dataframe import dataframe_to_rows
+from openpyxl.workbook import Workbook
 from parsel import Selector
+import pandas as pd
+import time
 
 # 搜索汽车名称url
 get_car_id_url = "https://www.dongchedi.com/search?keyword={car_name}&currTab=1&city_name={city_name}&search_mode=history"
@@ -33,28 +37,42 @@ def get_car_id(car_name, city_name):
 
 
 # 获取车友评论
-def get_car_frind_comment(car_id, total_pages=10, count=50):
+def get_car_frind_comment(car_id, total_pages=30, count=50):
     car_frind_list = []
     for page in range(1, total_pages + 1):
         carfrind_url = get_carfrind_comment.format(car_id=car_id, page=page, count=count)
-        response = requests.get(url=carfrind_url, headers=headers).json()
-        car_frind_comment_list = response.get("data").get("review_list")
-        for car_frind_comment in car_frind_comment_list:
-            car_frind_dict = {}
-            buy_car_info = car_frind_comment.get("buy_car_info")
-            if buy_car_info:
-                bought_time = buy_car_info.get("bought_time")
-                location = buy_car_info.get("location")
-                price = buy_car_info.get("price")
-                series_name = buy_car_info.get("series_name")
-                car_name = buy_car_info.get("car_name")
-                buy_car_info = f'''{bought_time}  {location}  {price} {series_name}-{car_name}'''
-            else:
-                buy_car_info = ""
-            car_content = car_frind_comment.get("content")
-            car_frind_dict["车主成交信息"] = buy_car_info
-            car_frind_dict["车主评论"] = car_content
-            car_frind_list.append(car_frind_dict)
+        response = requests.get(url=carfrind_url, headers=headers)
+        if response.status_code == 200:
+            try:
+                response_json = response.json()
+                car_frind_comment_list = response_json.get("data", {}).get("review_list", [])
+                # 检查评论列表是否为空，如果为空，则跳过本次请求，继续下一次请求
+                if not car_frind_comment_list:
+                    print("未获取到车友评论信息，跳过本次请求。")
+                    continue
+                for car_frind_comment in car_frind_comment_list:
+                    car_frind_dict = {}
+                    buy_car_info = car_frind_comment.get("buy_car_info")
+                    if buy_car_info:
+                        bought_time = buy_car_info.get("bought_time", "")
+                        location = buy_car_info.get("location", "")
+                        price = buy_car_info.get("price", "")
+                        series_name = buy_car_info.get("series_name", "")
+                        car_name = buy_car_info.get("car_name", "")
+                        car_frind_dict["成交时间"] = bought_time
+                        car_frind_dict["地点"] = location
+                        car_frind_dict["价格"] = price
+                        car_frind_dict["系列名称"] = series_name
+                        car_frind_dict["车型名称"] = car_name
+                        car_content = car_frind_comment.get("content", "")
+                        car_frind_dict["车主评论"] = car_content
+                        car_frind_list.append(car_frind_dict)
+            except json.JSONDecodeError:
+                print("JSON解析错误")
+        else:
+            print("请求失败:", response.status_code)
+        # 添加延迟，避免请求被关闭
+        time.sleep(1)  # 在每次请求之间添加2秒的延迟
     return car_frind_list
 
 
@@ -75,11 +93,11 @@ def get_car_detail(car_id, city_name):
             dealer_price = car_cls.get("dealer_price")
             upgrade = car_cls.get("upgrade_text")
             tags = "".join(car_cls.get("tags"))
-            if car_cls.get("diff_config_with_no_pic"):
-                configure = [i.get('config_group_key') + "-" + i.get('config_key') for i in
-                             car_cls.get("diff_config_with_no_pic")]
-            else:
+            configure_list = car_cls.get("diff_config_with_no_pic")
+            if configure_list is None:
                 configure = ""
+            else:
+                configure = ", ".join([i.get('config_group_key') + "-" + i.get('config_key') for i in configure_list])
             car_type_dict["车辆名称"] = car_name
             car_type_dict["车辆类型"] = car_type
             car_type_dict["官方指导价"] = price
@@ -89,7 +107,6 @@ def get_car_detail(car_id, city_name):
             car_type_dict["车辆标签"] = tags
             car_type_dict["车辆配置"] = configure
             car_type_list.append(car_type_dict)
-
     return car_type_list
 
 
@@ -98,20 +115,48 @@ def save_json(car_name, text):
     json_text = json.dumps(text, ensure_ascii=False)
     with open(car_name + ".json", "w", encoding="utf-8") as f:
         f.write(json_text)
-        print(car_name + "爬取成功")
+        print(car_name + " JSON文件保存成功")
+
+
+# 保存为excel表格
+def save_excel(car_name, carinfo):
+    wb = Workbook()
+    ws_detail = wb.active
+    ws_detail.title = "车辆详细信息"
+    df_detail = pd.DataFrame(carinfo["车辆详细信息"])
+    write_to_sheet(ws_detail, df_detail)
+
+    ws_frind = wb.create_sheet(title="车主成交信息")
+    df_frind = pd.DataFrame(carinfo["车主成交信息"])
+    write_to_sheet(ws_frind, df_frind)
+
+    wb.save(car_name + ".xlsx")
+    print(car_name + " Excel文件保存成功")
+
+
+def write_to_sheet(ws, df):
+    for r in dataframe_to_rows(df, index=False, header=True):
+        ws.append(r)
 
 
 # 启动函数
-def main(car_name, city_name):
+def main(car_name, city_name, export_format="json"):
     car_id = get_car_id(car_name=car_name, city_name=city_name)
     carinfo = {
         "车辆详细信息": get_car_detail(car_id=car_id, city_name=city_name),
         "车主成交信息": get_car_frind_comment(car_id=car_id)
     }
+    # if export_format == "json":
+    #     save_json(car_name, carinfo)
+    # elif export_format == "excel":
+    #     save_excel(car_name, carinfo)
+    # else:
+    #     print("导出格式错误，请选择json或excel。")
     save_json(car_name, carinfo)
+    save_excel(car_name, carinfo)
 
 
 if __name__ == '__main__':
-    car_list = ["唐DM-i"]
+    car_list = ["宋PLUS DM-i"]
     for i in car_list:
-        main(i, "西安")
+        main(i, "西安", export_format="excel")
