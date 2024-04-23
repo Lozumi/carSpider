@@ -5,6 +5,7 @@ from openpyxl.workbook import Workbook
 from parsel import Selector
 import pandas as pd
 import time
+import re
 
 # 搜索汽车名称url
 get_car_id_url = "https://www.dongchedi.com/search?keyword={car_name}&currTab=1&city_name={city_name}&search_mode=history"
@@ -37,7 +38,7 @@ def get_car_id(car_name, city_name):
 
 
 # 获取车友评论
-def get_car_frind_comment(car_id, total_pages=30, count=50):
+def get_car_frind_comment(car_id, total_pages=100, count=50):
     car_frind_list = []
     for page in range(1, total_pages + 1):
         carfrind_url = get_carfrind_comment.format(car_id=car_id, page=page, count=count)
@@ -72,7 +73,7 @@ def get_car_frind_comment(car_id, total_pages=30, count=50):
         else:
             print("请求失败:", response.status_code)
         # 添加延迟，避免请求被关闭
-        time.sleep(1)  # 在每次请求之间添加2秒的延迟
+        time.sleep(0.3)  # 在每次请求之间添加2秒的延迟
     return car_frind_list
 
 
@@ -136,7 +137,14 @@ def save_excel(car_name, carinfo):
 
 def write_to_sheet(ws, df):
     for r in dataframe_to_rows(df, index=False, header=True):
-        ws.append(r)
+        cleaned_content = clean_string(r)
+        ws.append(cleaned_content)
+
+
+def clean_string(s):
+    # 删除换行符、制表符等特殊字符
+    cleaned_s = re.sub(r'[\n\t\r]', ' ', s)
+    return cleaned_s
 
 
 # 启动函数
@@ -146,17 +154,17 @@ def main(car_name, city_name, export_format="json"):
         "车辆详细信息": get_car_detail(car_id=car_id, city_name=city_name),
         "车主成交信息": get_car_frind_comment(car_id=car_id)
     }
-    # if export_format == "json":
-    #     save_json(car_name, carinfo)
-    # elif export_format == "excel":
-    #     save_excel(car_name, carinfo)
-    # else:
-    #     print("导出格式错误，请选择json或excel。")
-    save_json(car_name, carinfo)
-    save_excel(car_name, carinfo)
+    if export_format == "json":
+        save_json(car_name, carinfo)
+    elif export_format == "excel":
+        save_excel(car_name, carinfo)
+    else:
+        print("导出格式错误，请选择json或excel。")
+    # save_json(car_name, carinfo)
+    # save_excel(car_name, carinfo)
 
 
 if __name__ == '__main__':
-    car_list = ["宋PLUS DM-i"]
+    car_list = ["奥迪A4L", "奥迪Q5L", "奥迪A3"]
     for i in car_list:
         main(i, "西安", export_format="excel")
