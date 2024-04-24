@@ -1,4 +1,6 @@
 import json
+
+import openpyxl
 import requests
 from openpyxl.utils.dataframe import dataframe_to_rows
 from openpyxl.workbook import Workbook
@@ -49,7 +51,7 @@ def get_car_frind_comment(car_id, total_pages=100, count=50):
                 car_frind_comment_list = response_json.get("data", {}).get("review_list", [])
                 # 检查评论列表是否为空，如果为空，则跳过本次请求，继续下一次请求
                 if not car_frind_comment_list:
-                    print("未获取到车友评论信息，跳过本次请求。")
+                    # print("未获取到车友评论信息，跳过本次请求。")
                     continue
                 for car_frind_comment in car_frind_comment_list:
                     car_frind_dict = {}
@@ -73,7 +75,7 @@ def get_car_frind_comment(car_id, total_pages=100, count=50):
         else:
             print("请求失败:", response.status_code)
         # 添加延迟，避免请求被关闭
-        time.sleep(0.3)  # 在每次请求之间添加2秒的延迟
+        time.sleep(0.5)  # 在每次请求之间添加2秒的延迟
     return car_frind_list
 
 
@@ -136,9 +138,13 @@ def save_excel(car_name, carinfo):
 
 
 def write_to_sheet(ws, df):
-    for r in dataframe_to_rows(df, index=False, header=True):
-        cleaned_content = clean_string(r)
-        ws.append(cleaned_content)
+    for index, row in df.iterrows():
+        cleaned_row = [clean_string(str(cell)) for cell in row]
+        try:
+            ws.append(cleaned_row)
+        except openpyxl.utils.exceptions.IllegalCharacterError as e:
+            print(f"Illegal character found in row {index + 1}: {e}")
+            print("Skipping this row.")
 
 
 def clean_string(s):
@@ -165,6 +171,11 @@ def main(car_name, city_name, export_format="json"):
 
 
 if __name__ == '__main__':
-    car_list = ["奥迪A4L", "奥迪Q5L", "奥迪A3"]
+    car_list = ["帕萨特", "桑塔纳", "Polo", "途锐", "ID.6 X", "朗逸", "凌渡", "ID.4 X", "途观L", "速腾", "探岳", "迈腾", "宝来", "途岳", "大众ID.3", "高尔夫", "途昂", "T-ROC探歌", "ID.4 CROZZ", "大众CC"]
     for i in car_list:
+        time_start = time.time()  # 记录开始时间
+        # function()   执行的程序
         main(i, "西安", export_format="excel")
+        time_end = time.time()  # 记录结束时间
+        time_sum = time_end - time_start  # 计算的时间差为程序的执行时间，单位为秒/s
+        print("耗时：%f" % time_sum)
